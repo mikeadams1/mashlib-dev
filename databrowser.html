@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html id="docHTML">
+<head>
+  <title>Solid Form Playground</title>
+  <meta content="text/html; charset=UTF-8" http-equiv="content-type">
+  <!-- was https://solid.github.io/solid-panes/style/tabbedtab.css   -->
+  
+    <link type="text/css" rel="stylesheet" href="https://mikeadams1.github.io/mashlib-library/tabbedtab.css" />
+    <script type="text/javascript" src="https://mikeadams1.github.io/form-playground/mashlib.js"></script>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const panes = require('mashlib')
+    const UI = panes.UI
+    const $rdf = UI.rdf
+    const dom = document
+    $rdf.Fetcher.crossSiteProxyTemplate = self.origin + '/xss?uri={uri}';
+    var uri = window.location.href;
+    // window.document.title = 'Data browser: ' + uri;
+    var kb = UI.store;
+    var outliner = panes.getOutliner(dom)
+
+    function complainIfBad (ok, message) {
+      if (ok) return
+      let msg = box.appendChild(dom.createElement('p'))
+      msg.textContent = message
+    }
+
+    function expandDataBowser ( event ) {
+      let uri = $rdf.uri.join(subjectEle.value, window.location.href)
+      console.log("User field " + subjectEle.value)
+      console.log("User requests " + uri)
+
+      const params = new URLSearchParams(location.search)
+      params.set('uri', uri);
+      window.history.replaceState({}, '', `${location.pathname}?${params}`);
+
+      var subject = kb.sym(uri);
+      // UI.widgets.makeDraggable(icon, subject) // beware many handlers piling up
+      outliner.GotoSubject(subject, true, undefined, true, undefined);
+    }
+
+    async function applyForm ( event ) {
+      let uri = $rdf.uri.join(subjectEle.value, window.location.href)
+      let subject = $rdf.sym(uri)
+      console.log("Subject field " + subjectEle.value)
+      console.log("Loading subject: " + subject)
+      await kb.fetcher.load(subject)
+      console.log("Loaded subject. ")
+
+      let formURI = $rdf.uri.join(formEle.value, window.location.href)
+      let form = $rdf.sym(formURI)
+      console.log("Form field " + formEle.value)
+      console.log("Loading form: " + form)
+      await kb.fetcher.load(form)
+      console.log("Loaded form. ✅")
+
+      console.log('Check predicates in form...')
+      const predicates = kb.statementsMatching(null, UI.ns.ui('property')).map(st => st.object)
+      var ontologyURIs = {}
+      for (var pred of predicates) {
+        console.log('        predicate: ' + pred)
+        let nsuri = pred.doc().uri
+        ontologyURIs[nsuri] = true
+      }
+      for (let ontURI in ontologyURIs) {
+        let ontology = $rdf.sym(ontURI)
+        ontURI = ontURI.replace(/^http:/, 'https:') // hack for browser security -- sigh
+        if (ontURI.startsWith('https://purl.org/dc/terms/')) {
+          console.log('   Using W3C archive version of ' + ontURI)
+          ontURI = ontURI.replace(/^https:\/\//, 'https://www.w3.org/archive/')
+          // ontURI = 'https://www.w3.org/archive/purl.org/dc/terms/ontology.rdf'
+        }
+        addToTray(ontology)
+        console.log('Loading ontology URI ' + ontURI)
+        let options = { withCredentials: false} // sigh more browser security
+        try {
+          await kb.fetcher.load(ontURI, options) // or could pass array ontologyURIs.keys
+        } catch (err) {
+          complainIfBad(false, ontURI + ' ' + err)
+        }
+      }
+
+      const params = new URLSearchParams(location.search)
+      params.set('subject', subject.uri);
+      params.set('form', form.uri);
+      window.history.replaceState({}, '', `${location.pathname}?${params}`);
+
+      let store = subject.doc() // @@ need footprints, allow user cotrol of store
+
+      UI.log.debug = console.log // @@ for testing
+
+      UI.widgets.appendForm(dom, box, {}, subject, form, store, complainIfBad)
+
+      // UI.widgets.makeDraggable(icon, subject) // beware many handlers piling up
+      // outliner.GotoSubject(subject, true, undefined, true, undefined);
+    }
+
+    async function addToTray (thing) {
+      console.log('Add to tray:' + thing)
+      function deleteThis () {
+        // @@ logical removal from tray collection
+        tray.removeChild(card)
+      }
+      var already = {}
+      for (var ele of tray.children) {
+        if (ele.subject) {
+          already[ele.subject.uri] = true
+        }
+      }
+      if (already[thing.uri]) {
+        console.log('    dropped object already in tray. ignore.' + thing)
+        return
+      }
+
+      var tr = UI.widgets.personTR(dom, null, thing, { deleteFunction: deleteThis}) // @@ add delete
+      var card = dom.createElement('table') // its own
+      card.appendChild(tr)
+
+      card.subject = thing
+      card.style.backgroundColor = '#8e8'
+      card.style.borderRadius = '1em'
+      card.style.margin = '0.3em'
+      tray.appendChild(card)
+    }
+
+    async function handleURIsDroppedOnTray (uris) {
+      for (uri of uris) {
+        console.log('dropped uri: ' + uri)
+        await addToTray($rdf.sym(uri))
+      }
+    }
+
+    const box = dom.getElementById('box')
+    const formEle = dom.getElementById('form')
+    const subjectEle = dom.getElementById('subject')
+    const goButton = dom.getElementById('goButton')
+    const applyButton =  dom.getElementById('applyButton')
+    /*
+    subject.addEventListener('keyup', function (e) {
+      if (e.keyCode === 13) {
+        expandDataBowser(e)
+      }
+    }, false)
+    */
+
+    const tray = box.appendChild(dom.createElement('div'))
+    tray.style = 'background-color: #ccc; padding: 1em; border-radius: 1em; min-width:30em; min-height: 5em;'
+    UI.widgets.makeDropTarget(tray, handleURIsDroppedOnTray)
+
+    // Basic stuff:
+
+    goButton.addEventListener('click', expandDataBowser, false);
+    applyButton.addEventListener('click', applyForm, false);
+
+    let initialSubject = new URLSearchParams(self.location.search).get("subject")
+    if (initialSubject) {
+      subjectEle.value = initialSubject
+    }
+    let initialForm = new URLSearchParams(self.location.search).get("form")
+    if (initialForm) {
+      formEle.value = initialForm
+    } else {
+      // formEle.value = 'https://timbl.com/timbl/Public/Test/Forms/individualForm.ttl#form1'
+    }
+
+    goButton.addEventListener('click', expandDataBowser, false);
+    let initial = new URLSearchParams(self.location.search).get("uri")
+    if (initial) {
+      subject.value = initial
+    } else {
+      console.log('ready for user input')
+      // subjectEle.value = 'https://www.w3.org/People/Berners-Lee/card#i' // @@ testing
+    }
+
+    async function main () {
+      await addToTray($rdf.sym('https://inrupt.net/register'))
+      await addToTray($rdf.sym('https://solid.community/register'))
+      await addToTray($rdf.sym('https://yngwiemalmsteen.solid.community'))
+    }
+
+    if (initialSubject && initialForm) {
+      console.log('All parms in URL search -> do immediately')
+      applyForm()
+    } else {
+      console.log('ready for user input')
+    }
+    main()
+});
+</script>
+</head>
+<body>
+  <table style="width:100%;">
+    <tr>Data browser form playground</tr>
+    <tr style="font-size:100%">
+      <td style="padding:1em; width:5em;" id="icon">Subject:</td>
+      <td><input id="subject" type="text" style="font-size:100%; min-width:30em; padding:0.5em; width:95%;"/></td>
+      <td  style="width:5em;"><input type="button" id="goButton" value="(databrowser view)" /></td>
+    </tr>
+    <tr style="font-size:100%">
+      <td style="padding:1em; width:5em;" id="icon">Form to use:</td>
+      <td><input id="form" type="text" style="font-size:100%; min-width:30em; padding:0.5em; width:95%;"/></td>
+      <td  style="width:5em;"><input type="button" id="applyButton" value="Apply" /></td>
+    </tr>
+    <tr><td colspan="3">
+      <div class="TabulatorOutline" id="box">
+          <table id="outline"></table>
+      </div>
+    </td>
+    </tr>
+</table>
+</body>
+</html
