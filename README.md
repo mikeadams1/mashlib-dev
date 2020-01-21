@@ -1,5 +1,7 @@
 # Mashlib development project
 
+ [Use the Mashlib Browser Live](https://mikeadams1.github.io/mashlib-dev)
+ 
 This project is intended to ease the development setup for the mashlib project, aka Solid data browser.
  
 It allows you to install automatically several of the component repositories of the mashlib system, and coordinate their development.
